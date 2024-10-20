@@ -2,6 +2,53 @@
 This is my writeups for some deadface challenges I've done as a member of [PsychoBash](https://ctftime.org/team/358981), it's mostly crypto and reverse :).
 
 ## Reverse Engineering
+### CEREAL 01
+It was just an ltrace of the binary and we get the password to get the flag : `chmod +x ck-2024-re04; echo "doppel" | ltrace ./ck-2024-re04`<br>
+now we can get the password : `booberry` and enter it to get the flag : `flag{The-M0st-Fam0us-Nephew-Loves-B00B3rry!}`<br>
+### CEREAL 02
+For this one I didn't find the password after anlyzing binary we can see some data is in variable v8, v6, s2 : <br>
+<img src="image_2024-10-20_125027585.png" ><br>
+We notice in the password checker that a function is called, and pass v8 data and v6 hash of yellowschoolbus.<br> 
+<img src="image_2024-10-20_125200128.png"><br>
+This function is RC4 : <br>
+<img src="image_2024-10-20_125112993.png"><br>
+After converting v8 data to big endian we can decipher using cyberchef and grab the flag : <br>
+<img src="image_2024-10-20_124853110.png"/> `flag{Mdm-Harris-Eats-FrankenB3rry-On-Yell0w-SchQQl-Busses!}`
+### CEREALKILLER 05
+I reversed the compiled java aplication using jadx :
+<img src="image_2024-10-20_130142158.png">
+we can simply do a KPA with XOR on the link knowing first 5 bytes are `https` to get the key `Br00t` and grab all image link, we then compute hash of the image and we can decipher flag which has been ciphered by AES-GCM. see my solve script below :<br>
+```python
+from pwn import *
+import requests
+import hashlib
+import base64
+from Crypto.Cipher import AES
+from Crypto.Util.Padding import unpad
+from pathlib import Path
+
+def decrypt_flag_with_aes_gcm(key, nonce_base64, ciphertext_base64):
+    nonce = base64.b64decode(nonce_base64)
+    ciphertext = base64.b64decode(ciphertext_base64)
+    cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+    plaintext = cipher.decrypt(ciphertext)
+    return plaintext
+
+encrypted = [42, 6, 68, 64, 7, 120, 93, 31, 83, 17, 48, 23, 81, 92, 90, 46, 11, 68, 68, 27, 44, 30, 81, 82, 7, 108, 29, 66, 87, 91, 33, 23, 66, 85, 21, 46, 1, 31, 86, 6, 45, 29, 68, 82, 6, 45, 29, 68, 30, 30, 50, 23, 87]
+encrypted_bytes = b""
+for e in encrypted:
+    encrypted_bytes+=e.to_bytes()
+
+image_link = xor(encrypted_bytes, "Br00t") # l'image se récup avec https
+with open("frootbroot.jpeg", "rb") as file:
+    data = file.read()
+
+key = hashlib.sha256(data).digest()
+ivbase64 = "qHttv1t5TWZLDM4e"
+ciphertext_base64 = "Tj/BJ+45Z45uRCFpuFOHirQI34ZC7bmtpCtJ3OE613fIxqrsZwIoLNSBXSjtPONFqZF3gC+4glh1Gyi2RBKZcuItH8s="
+
+print(decrypt_flag_with_aes_gcm(key, ivbase64, ciphertext_base64)) # flag{Fr00t-Br00t-is-the-only-cereal-for-Prez-Trump!}
+```
 
 ## Cryptography
 ### Social Pressure
