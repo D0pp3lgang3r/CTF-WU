@@ -85,3 +85,107 @@ key = b"Tea Turned Up to the Max"
 plain_text = xxtea.decrypt(cipher_text, key)
 b"Ah, I see you've stumbled upon my little souvenir. By now, you must be feeling pretty exposed. It's a shame companies like yours invest in everything but proper security. Remember, this isn't personal; it's just your turn. Sleep tight, spookyboi was here. flag{br3wed_4_the_B0ld!}"
 ```
+### Killer Curve
+This one was definitely hardest crypto challenge of the competition we have a binary which allows us to connect to a server by sending a public key, server will use it to compute shared key and send us back this shared key to cipher any file we want.<br>
+Reversing this binary was kind of hard, but I've noticed some interesting stuff in it, concidering the format of the key which is given by this line : `v91.str = (uint8 *)"Public key in hex format (x:y)";`<br>
+Also the type of cipher being used : <br>
+<img src="image_2024-10-20_111553782.png" /><br>
+Here is an example of usage of the binary :<br>
+<img src="image_2024-10-20_110928801.png" />
+We notice that the type of curve printed by the binary wasn't the same than the one we saw in the code, so i've took the elliptic curve parameters of the one in code. <br>
+Before entering in the crypto attack we're going to implement, let's review definition of an Elliptic Curve over a finite field $`\mathbb{F}_p`$ which is defined by the following equation : $`E : Y^2 = X^3 + aX + b \ (mod \ p)`$ with $`a, b, p`$ parameters of the curve, and $`(X, Y)`$ coordinates of points on the curve, we can add points together and multiply those points, it also exists point at infinity written $`O`$
+Point addition on $`E(\mathbb{F}_p)`$ is a bit particular see this theorem :
+<img src="image_2024-10-20_113514080.png" /><br>
+As we can add points together we can also multiply points by a scalar $`l`$, for example if i take a random point $`P`$ on my elliptic curve and compute $`lP = Q`$ it will give me another point on the curve see double and add algorithm.<br>
+And this is exactly the problem we are facing on this challenge, it is about solving ECDHKE (Elliptic Curve Diffie Hellman Key Exchange) to find the scalar $`l`$ which is the private key of the server :).<br>
+On the challenge, when I connect to the server it always gives me the same public key :
+<img src="image_2024-10-20_115731173.png"/>
+The curve which is used by the challenge is this one : https://neuromancer.sk/std/secg/secp256r1.<br>
+I've also noticed that if I send a point which is not suppose to be on that curve, server accept it and compute shared secret anyway see below : 
+In my terminal : 
+<img src="image_2024-10-20_120403181.png">
+<img src="image_2024-10-20_120501477.png">
+To the remote server :
+<img src="image_2024-10-20_120245575.png">
+Noticing this, we know it's invalid curve attack that can allow us to get the private key of the server, now let's review what's invalid curve attack.<br>
+As the b constant is not used in the scalar multiplication, we need to find curves with same a but diffferent small b which gives us a smooth order for the curve, we will send multiple evil points from different curves everytime and we will get the answer of the server.<br>
+To generate the evil point, we factorise the order of the curve, take a small factor of it and take a point that has this factor as order.<br>
+We then compute discrete log of the answer of the server, and use crt on all those discrete logs to get the private key, care to send enough evil points until order of product of all evil points above the order of the curve :).<br>
+Here is my solve script (adapted from here https://www.hackthebox.com/blog/business-ctf-2022-400-curves-write-up)<br>
+```python
+from Crypto.Util.number import long_to_bytes
+from sage.all_cmdline import *
+from pwn import *
+
+a = 0xffffffff00000001000000000000000000000000fffffffffffffffffffffffc
+b = 0x5ac635d8aa3a93e7b3ebbd55769886bc651d06b0cc53b0f63bce3c3e27d2604b
+p = 0xffffffff00000001000000000000000000000000ffffffffffffffffffffffff
+
+K = GF(p)
+
+def solveDL(r):
+    b = randint(1, p)
+    E = EllipticCurve(GF(p), [a, b])
+    K = GF(p)
+    order = E.order()
+    factors = prime_factors(order)
+
+    valid = []
+    for factor in factors:
+        if factor <= 2**40:
+            valid.append(factor)
+
+    prime = valid[-1]
+
+    G = E.gen(0) * int(order / prime)
+
+    tmp_point = G.xy()
+    tmp_x, tmp_y = str(hex(tmp_point[0]))[2:], str(hex(tmp_point[1]))[2:]
+    tmp_point = tmp_x + ":" + tmp_y
+    r.sendline(tmp_point)
+    data = int(r.recvline().decode())
+    print(data)
+    try:
+        Q = E.lift_x(K(data))
+        print("Computing the discrete log problem")
+        log = G.discrete_log(Q)
+        print(f"DL found: {log}")
+        return (log, prime)
+    except Exception as e:
+        print(e)
+        return None, None
+
+def getDLs():
+    dlogs = []
+    primes = []
+    multi = 1
+    while multi <= 0xffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551:
+        r = remote("killercurve.deadface.io", 4444)
+        print(r.recvline())
+        log, prime = solveDL(r)
+        print(log)
+        print(prime)
+        if log != None:
+            dlogs.append(log)
+            primes.append(prime)
+            multi *= prime
+        print(f"counter: {i}")
+    return dlogs, primes
+
+
+def pwn():
+    dlogs, primes = getDLs()
+    print(f"dlogs: {dlogs}")
+    print(f"primes: {primes}")
+    l = len(dlogs)
+    print(l)
+    for i in range(2**l):
+        signs = [1 if i & (1 << j) else -1 for j in range(l)]
+        secret = crt([dlog * sign for dlog, sign in zip(dlogs, signs)], primes)
+        if b'flag' in long_to_bytes(secret):
+            print(long_to_bytes(secret)) # flag{1nv@l1d-cUrv3}
+
+if __name__ == "__main__":
+    pwn()
+```
+
