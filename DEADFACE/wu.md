@@ -135,7 +135,7 @@ b"Ah, I see you've stumbled upon my little souvenir. By now, you must be feeling
 ### Killer Curve
 This one was definitely hardest crypto challenge of the competition we have a binary which allows us to connect to a server by sending a public key, server will use it to compute shared key and send us back this shared key to cipher any file we want.<br>
 Reversing this binary was kind of hard, but I've noticed some interesting stuff in it, concidering the format of the key which is given by this line : `v91.str = (uint8 *)"Public key in hex format (x:y)";`<br>
-Also the type of cipher being used : <br>
+Also the type of curve being used : <br>
 <img src="image_2024-10-20_111553782.png" /><br>
 Here is an example of usage of the binary :<br>
 <img src="image_2024-10-20_110928801.png" />
